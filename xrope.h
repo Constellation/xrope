@@ -76,15 +76,32 @@ XROPE_INCREF(xrope *x) {
 
 static inline void
 XROPE_DECREF(xrope *x) {
-  if (! --x->refcnt) {
+  while (1) {
+    xrope *p, *s;
+    size_t o;
+
+    if (--x->refcnt) {
+      return;
+    }
+
     if (x->chunk) {
       XR_CHUNK_DECREF(x->chunk);
       free(x);
       return;
     }
-    XROPE_DECREF(x->left);
-    XROPE_DECREF(x->right);
-    free(x);
+
+    p = x;
+    if (x->left->weight < x->right->weight) {
+      s = x->left;
+      x = x->right;
+    } else {
+      s = x->right;
+      x = x->left;
+    }
+
+    XROPE_DECREF(s);
+    p->left = p->right = NULL;
+    free(p);
   }
 }
 
@@ -275,27 +292,57 @@ xr_sub(xrope *x, size_t i, size_t j)
   }
 }
 
+/**
+ * xr_fold_consume flushes a xrope's content to a chunk and decref a taken
+ * xrope.
+ */
+static inline void
+xr_fold_consume(xrope *x, xr_chunk *c, size_t offset)
+{
+  while (1) {
+    xrope *p, *s;
+    size_t o;
+
+    if (x->chunk) {
+      memcpy(c->str + offset, x->chunk->str + x->offset, x->weight);
+      XR_CHUNK_DECREF(x->chunk);
+
+      x->chunk = c;
+      x->offset = offset;
+      XR_CHUNK_INCREF(c);
+      XROPE_DECREF(x);
+      return;
+    }
+
+    p = x;
+    p->chunk = c;
+    p->offset = offset;
+    XR_CHUNK_INCREF(c);
+
+    if (x->left->weight < x->right->weight) {
+      o = offset;
+      s = x->left;
+      offset = offset + x->left->weight;
+      x = x->right;
+    } else {
+      o = offset + x->left->weight;
+      s = x->right;
+      /* offset = offset; */
+      x = x->left;
+    }
+
+    xr_fold_consume(s, c, o);
+    p->left = p->right = NULL;
+    XROPE_DECREF(p);
+  }
+}
+
 static inline void
 xr_fold(xrope *x, xr_chunk *c, size_t offset)
 {
-  if (x->chunk) {
-    memcpy(c->str + offset, x->chunk->str + x->offset, x->weight);
-    XR_CHUNK_DECREF(x->chunk);
-
-    x->chunk = c;
-    x->offset = offset;
-    XR_CHUNK_INCREF(c);
-    return;
-  }
-  xr_fold(x->left, c, offset);
-  xr_fold(x->right, c, offset + x->left->weight);
-
-  XROPE_DECREF(x->left);
-  XROPE_DECREF(x->right);
-  x->left = x->right = NULL;
-  x->chunk = c;
-  x->offset = offset;
-  XR_CHUNK_INCREF(c);
+  /* pin the top level rope */
+  XROPE_INCREF(x);
+  xr_fold_consume(x, c, offset);
 }
 
 static inline const char *

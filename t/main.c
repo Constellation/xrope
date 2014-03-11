@@ -19,6 +19,7 @@ run()
 {
   char text[] = "Hello my name is Yuichi";
   xrope *x, *y, *z, *w, *v;
+  int i;
 
   x = xr_new_imbed(text + 15, 1);
   y = xr_new_imbed(text + 16, 7);
@@ -51,7 +52,21 @@ run()
   test(strcmp(xr_cstr(x), text) == 0);
   test(xr_cstr(x) == xr_cstr(x)); /* properly cached? */
 
-  test(strcmp(xr_cstr(xr_sub(x, 13, xr_len(x))), text + 13) == 0);
+  y = xr_sub(x, 13, xr_len(x));
+  test(strcmp(xr_cstr(y), text + 13) == 0);
+  XROPE_DECREF(x);
+  XROPE_DECREF(y);
+
+  x = xr_new_imbed(text + 15, 1);
+  for (i = 0; i < 10000000; ++i) {
+    y = x;
+    z = xr_new_imbed(text + 15, 1);
+    x = xr_cat(y, z);
+    XROPE_DECREF(y);
+    XROPE_DECREF(z);
+  }
+  test(strlen(xr_cstr(x)) == 10000001);
+  XROPE_DECREF(x);
 }
 
 int
